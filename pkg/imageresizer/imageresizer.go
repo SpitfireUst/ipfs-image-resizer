@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color/palette"
+	"image/draw"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
@@ -115,7 +117,8 @@ func resizeImage(data []byte, width, height int) ([]byte, string, error) {
 	case "png":
 		err = png.Encode(&buf, resizedImg)
 	case "gif":
-		err = gif.Encode(&buf, resizedImg, nil)
+		resized := resizeGif(data, width, height)
+		err = gif.EncodeAll(&buf, resized)
 	default:
 		return nil, "", fmt.Errorf("unsupported image format: %s", format)
 	}
@@ -125,4 +128,39 @@ func resizeImage(data []byte, width, height int) ([]byte, string, error) {
 	}
 
 	return buf.Bytes(), format, nil
+}
+
+func resizeGif(f []byte, width, height int) *gif.GIF {
+	im, err := gif.DecodeAll(bytes.NewBuffer(f))
+
+	if err != nil {
+		log.Fatalf("failed to resize gif %v", err)
+	}
+
+	if width == 0 {
+		width = int(im.Config.Width * height / im.Config.Width)
+	} else if height == 0 {
+		height = int(width * im.Config.Height / im.Config.Width)
+	}
+
+	im.Config.Width = width
+	im.Config.Height = height
+
+	firstFrame := im.Image[0].Bounds()
+	img := image.NewRGBA(image.Rect(0, 0, firstFrame.Dx(), firstFrame.Dy()))
+
+	for index, frame := range im.Image {
+		b := frame.Bounds()
+		draw.Draw(img, b, frame, b.Min, draw.Over)
+		im.Image[index] = ImageToPaletted(imaging.Fit(img, width, height, imaging.Lanczos))
+	}
+
+	return im
+}
+
+func ImageToPaletted(img image.Image) *image.Paletted {
+	b := img.Bounds()
+	pm := image.NewPaletted(b, palette.Plan9)
+	draw.FloydSteinberg.Draw(pm, b, img, image.ZP)
+	return pm
 }
